@@ -581,6 +581,29 @@ int sni_switch_ctx(SSL *ssl, int *al, void *data) {
 }
 #endif /* OPENSSL_NO_TLSEXT */
 
+/*
+ * Dummy verify callback used by proxy_verify_callback
+ */
+int dummy_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx) {
+    assert(x509_ctx != NULL);
+    return preverify_ok;
+}
+
+/*
+ * Custom verify callback to allow proxy certs.
+ */
+int proxy_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx) {
+    int verify_result;
+    if(preverify_ok) {
+        return preverify_ok;
+    }
+    if (x509_ctx->verify_cb == proxy_verify_callback) {
+        x509_ctx->verify_cb = dummy_verify_callback;
+    }
+    X509_STORE_CTX_set_flags(x509_ctx, X509_V_FLAG_ALLOW_PROXY_CERTS);
+    verify_result = X509_verify_cert(x509_ctx);
+    return verify_result;
+}
 
 /*
  * Initialize an SSL context
@@ -619,6 +642,26 @@ SSL_CTX *make_ctx(const char *pemfile) {
 
     if (CONFIG->PREFER_SERVER_CIPHERS) {
         SSL_CTX_set_options(ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+    }
+
+    if (CONFIG->CA_PATH) {
+        if (SSL_CTX_load_verify_locations(ctx, NULL, CONFIG->CA_PATH) != 1) {
+            ERR_print_errors_fp(stderr);
+            exit(1);
+        }
+    }
+
+    if (CONFIG->VERIFY_DEPTH > 0) {
+        ssloptions = SSL_VERIFY_PEER;
+        if(CONFIG->VERIFY_REQUIRE) {
+            ssloptions |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+        }
+        if(CONFIG->VERIFY_PROXY) {
+            SSL_CTX_set_verify(ctx, ssloptions, proxy_verify_callback);
+        } else {
+            SSL_CTX_set_verify(ctx, ssloptions, NULL);
+        }
+        SSL_CTX_set_verify_depth(ctx, CONFIG->VERIFY_DEPTH);
     }
 
     if (CONFIG->PMODE == SSL_CLIENT) {
