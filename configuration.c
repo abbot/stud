@@ -49,6 +49,8 @@
 #define CFG_PROXY_PROXY "proxy-proxy"
 #define CFG_CA_PATH "ca-path"
 #define CFG_PARAM_CA_PATH 20000
+#define CFG_VERIFY_DEPTH "verify-depth"
+#define CFG_PARAM_VERIFY_DEPTH 20001
 
 #ifdef USE_SHARED_CACHE
   #define CFG_SHARED_CACHE "shared-cache"
@@ -150,6 +152,7 @@ stud_config * config_new (void) {
   r->DAEMONIZE          = 0;
   r->PREFER_SERVER_CIPHERS = 0;
   r->CA_PATH            = strdup("/etc/grid-security/certificates");
+  r->VERIFY_DEPTH       = 0;
 
   return r;
 }
@@ -721,6 +724,10 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
       }
     }
   }
+  else if (strcmp(k, CFG_VERIFY_DEPTH) == 0) {
+    r = config_param_val_int(v, &cfg->VERIFY_DEPTH);
+    if (r && cfg->VERIFY_DEPTH < 0) cfg->VERIFY_DEPTH = 0;
+  }
   else {
     fprintf(
       stderr,
@@ -943,6 +950,7 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "                             before actual data\n");
   fprintf(out, "                             (Default: %s)\n", config_disp_bool(cfg->PROXY_PROXY_LINE));
   fprintf(out, "      --ca-path              Path to CA files directory (Default: %s)\n", config_disp_str(cfg->CA_PATH));
+  fprintf(out, "      --verify-depth         Peer certificate verification depth, 0 to disable (Default: %d)\n", cfg->VERIFY_DEPTH);
   fprintf(out, "\n");
   fprintf(out, "  -t  --test                 Test configuration and exit\n");
   fprintf(out, "  -V  --version              Print program version and exit\n");
@@ -1011,6 +1019,12 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, "#\n");
   fprintf(fd, "# type: string\n");
   fprintf(fd, FMT_QSTR, CFG_CA_PATH, config_disp_str(cfg->CA_PATH));
+  fprintf(fd, "\n");
+
+  fprintf(fd, "# Peer certificate verification depth (0 to disasble)\n");
+  fprintf(fd, "#\n");
+  fprintf(fd, "# type: integer\n");
+  fprintf(fd, FMT_ISTR, CFG_VERIFY_DEPTH, cfg->VERIFY_DEPTH);
   fprintf(fd, "\n");
 
   fprintf(fd, "# Number of worker processes\n");
@@ -1189,6 +1203,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { CFG_WRITE_PROXY, 0, &cfg->WRITE_PROXY_LINE, 1 },
     { CFG_PROXY_PROXY, 0, &cfg->PROXY_PROXY_LINE, 1 },
     { CFG_CA_PATH, 1, NULL, CFG_PARAM_CA_PATH },
+    { CFG_VERIFY_DEPTH, 1, NULL, CFG_PARAM_VERIFY_DEPTH },
 
     { "test", 0, NULL, 't' },
     { "version", 0, NULL, 'V' },
@@ -1278,6 +1293,9 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
         break;
       case CFG_PARAM_CA_PATH:
         config_param_validate(CFG_CA_PATH, optarg, cfg, NULL, 0);
+        break;
+      case CFG_PARAM_VERIFY_DEPTH:
+        config_param_validate(CFG_VERIFY_DEPTH, optarg, cfg, NULL, 0);
         break;
       case 't':
         test_only = 1;

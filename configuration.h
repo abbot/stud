@@ -70,6 +70,7 @@ struct __stud_config {
     int DAEMONIZE;
     int PREFER_SERVER_CIPHERS;
     char *CA_PATH;
+    int VERIFY_DEPTH;
 };
 
 typedef struct __stud_config stud_config;
