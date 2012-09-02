@@ -151,7 +151,7 @@ stud_config * config_new (void) {
   r->TCP_KEEPALIVE_TIME = 3600;
   r->DAEMONIZE          = 0;
   r->PREFER_SERVER_CIPHERS = 0;
-  r->CA_PATH            = strdup("/etc/grid-security/certificates");
+  r->CA_PATH            = NULL;
   r->VERIFY_DEPTH       = 0;
 
   return r;
@@ -949,7 +949,7 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "      --proxy-proxy          Proxy HaProxy's PROXY (IPv4 or IPv6) protocol line\n" );
   fprintf(out, "                             before actual data\n");
   fprintf(out, "                             (Default: %s)\n", config_disp_bool(cfg->PROXY_PROXY_LINE));
-  fprintf(out, "      --ca-path              Path to CA files directory (Default: %s)\n", config_disp_str(cfg->CA_PATH));
+  fprintf(out, "      --ca-path              Path to CA files directory (Default: \"%s\")\n", config_disp_str(cfg->CA_PATH));
   fprintf(out, "      --verify-depth         Peer certificate verification depth, 0 to disable (Default: %d)\n", cfg->VERIFY_DEPTH);
   fprintf(out, "\n");
   fprintf(out, "  -t  --test                 Test configuration and exit\n");
