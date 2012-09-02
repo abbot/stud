@@ -47,6 +47,8 @@
 #define CFG_WRITE_PROXY "write-proxy"
 #define CFG_PEM_FILE "pem-file"
 #define CFG_PROXY_PROXY "proxy-proxy"
+#define CFG_CA_PATH "ca-path"
+#define CFG_PARAM_CA_PATH 20000
 
 #ifdef USE_SHARED_CACHE
   #define CFG_SHARED_CACHE "shared-cache"
@@ -147,6 +149,7 @@ stud_config * config_new (void) {
   r->TCP_KEEPALIVE_TIME = 3600;
   r->DAEMONIZE          = 0;
   r->PREFER_SERVER_CIPHERS = 0;
+  r->CA_PATH            = strdup("/etc/grid-security/certificates");
 
   return r;
 }
@@ -704,6 +707,20 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
       }
     }
   }
+  else if (strcmp(k, CFG_CA_PATH) == 0) {
+    if (v != NULL && strlen(v) > 0) {
+      if (stat(v, &st) != 0) {
+        config_error_set("Unable to stat CA path '%s': ", v, strerror(errno));
+        r = 0;
+      }
+      else if (! S_ISDIR(st.st_mode)) {
+        config_error_set("Invalid CA path '%s': Not a directory.", v);
+        r = 0;
+      } else {
+        config_assign_str(&cfg->CA_PATH, v);
+      }
+    }
+  }
   else {
     fprintf(
       stderr,
@@ -925,6 +942,7 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "      --proxy-proxy          Proxy HaProxy's PROXY (IPv4 or IPv6) protocol line\n" );
   fprintf(out, "                             before actual data\n");
   fprintf(out, "                             (Default: %s)\n", config_disp_bool(cfg->PROXY_PROXY_LINE));
+  fprintf(out, "      --ca-path              Path to CA files directory (Default: %s)\n", config_disp_str(cfg->CA_PATH));
   fprintf(out, "\n");
   fprintf(out, "  -t  --test                 Test configuration and exit\n");
   fprintf(out, "  -V  --version              Print program version and exit\n");
@@ -987,6 +1005,12 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, "#\n");
   fprintf(fd, "# type: string\n");
   fprintf(fd, FMT_QSTR, CFG_SSL_ENGINE, config_disp_str(cfg->ENGINE));
+  fprintf(fd, "\n");
+
+  fprintf(fd, "# CA path for certificate validation\n");
+  fprintf(fd, "#\n");
+  fprintf(fd, "# type: string\n");
+  fprintf(fd, FMT_QSTR, CFG_CA_PATH, config_disp_str(cfg->CA_PATH));
   fprintf(fd, "\n");
 
   fprintf(fd, "# Number of worker processes\n");
@@ -1164,6 +1188,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { CFG_WRITE_IP, 0, &cfg->WRITE_IP_OCTET, 1 },
     { CFG_WRITE_PROXY, 0, &cfg->WRITE_PROXY_LINE, 1 },
     { CFG_PROXY_PROXY, 0, &cfg->PROXY_PROXY_LINE, 1 },
+    { CFG_CA_PATH, 1, NULL, CFG_PARAM_CA_PATH },
 
     { "test", 0, NULL, 't' },
     { "version", 0, NULL, 'V' },
@@ -1250,6 +1275,9 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
         break;
       case 's':
         config_param_validate(CFG_SYSLOG, CFG_BOOL_ON, cfg, NULL, 0);
+        break;
+      case CFG_PARAM_CA_PATH:
+        config_param_validate(CFG_CA_PATH, optarg, cfg, NULL, 0);
         break;
       case 't':
         test_only = 1;
