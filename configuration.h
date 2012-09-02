@@ -71,6 +71,8 @@ struct __stud_config {
     int PREFER_SERVER_CIPHERS;
     char *CA_PATH;
     int VERIFY_DEPTH;
+    int VERIFY_REQUIRE;
+    int VERIFY_PROXY;
 };
 
 typedef struct __stud_config stud_config;

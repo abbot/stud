@@ -51,6 +51,10 @@
 #define CFG_PARAM_CA_PATH 20000
 #define CFG_VERIFY_DEPTH "verify-depth"
 #define CFG_PARAM_VERIFY_DEPTH 20001
+#define CFG_VERIFY_REQUIRE "verify-require"
+#define CFG_PARAM_VERIFY_REQUIRE 20002
+#define CFG_VERIFY_PROXY "verify-proxy"
+#define CFG_PARAM_VERIFY_PROXY 20003
 
 #ifdef USE_SHARED_CACHE
   #define CFG_SHARED_CACHE "shared-cache"
@@ -153,6 +157,8 @@ stud_config * config_new (void) {
   r->PREFER_SERVER_CIPHERS = 0;
   r->CA_PATH            = NULL;
   r->VERIFY_DEPTH       = 0;
+  r->VERIFY_REQUIRE     = 0;
+  r->VERIFY_PROXY       = 0;
 
   return r;
 }
@@ -728,6 +734,12 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
     r = config_param_val_int(v, &cfg->VERIFY_DEPTH);
     if (r && cfg->VERIFY_DEPTH < 0) cfg->VERIFY_DEPTH = 0;
   }
+  else if (strcmp(k, CFG_VERIFY_REQUIRE) == 0) {
+    r = config_param_val_bool(v, &cfg->VERIFY_REQUIRE);
+  }
+  else if (strcmp(k, CFG_VERIFY_PROXY) == 0) {
+    r = config_param_val_bool(v, &cfg->VERIFY_PROXY);
+  }
   else {
     fprintf(
       stderr,
@@ -951,6 +963,8 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "                             (Default: %s)\n", config_disp_bool(cfg->PROXY_PROXY_LINE));
   fprintf(out, "      --ca-path              Path to CA files directory (Default: \"%s\")\n", config_disp_str(cfg->CA_PATH));
   fprintf(out, "      --verify-depth         Peer certificate verification depth, 0 to disable (Default: %d)\n", cfg->VERIFY_DEPTH);
+  fprintf(out, "      --verify-require       Fail if peer does not present a valid certificate\n");
+  fprintf(out, "      --verify-proxy         Allow proxy certificates in certificate chain\n");
   fprintf(out, "\n");
   fprintf(out, "  -t  --test                 Test configuration and exit\n");
   fprintf(out, "  -V  --version              Print program version and exit\n");
@@ -1025,6 +1039,18 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, "#\n");
   fprintf(fd, "# type: integer\n");
   fprintf(fd, FMT_ISTR, CFG_VERIFY_DEPTH, cfg->VERIFY_DEPTH);
+  fprintf(fd, "\n");
+
+  fprintf(fd, "# Require valid peer certificate\n");
+  fprintf(fd, "#\n");
+  fprintf(fd, "# type: boolean\n");
+  fprintf(fd, FMT_STR, CFG_VERIFY_REQUIRE, config_disp_bool(cfg->VERIFY_REQUIRE));
+  fprintf(fd, "\n");
+
+  fprintf(fd, "# Allow proxy certificates in verify chain\n");
+  fprintf(fd, "#\n");
+  fprintf(fd, "# type: boolean\n");
+  fprintf(fd, FMT_STR, CFG_VERIFY_PROXY, config_disp_bool(cfg->VERIFY_PROXY));
   fprintf(fd, "\n");
 
   fprintf(fd, "# Number of worker processes\n");
@@ -1204,6 +1230,8 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { CFG_PROXY_PROXY, 0, &cfg->PROXY_PROXY_LINE, 1 },
     { CFG_CA_PATH, 1, NULL, CFG_PARAM_CA_PATH },
     { CFG_VERIFY_DEPTH, 1, NULL, CFG_PARAM_VERIFY_DEPTH },
+    { CFG_VERIFY_REQUIRE, 0, NULL, CFG_PARAM_VERIFY_REQUIRE },
+    { CFG_VERIFY_PROXY, 0, NULL, CFG_PARAM_VERIFY_PROXY },
 
     { "test", 0, NULL, 't' },
     { "version", 0, NULL, 'V' },
@@ -1296,6 +1324,12 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
         break;
       case CFG_PARAM_VERIFY_DEPTH:
         config_param_validate(CFG_VERIFY_DEPTH, optarg, cfg, NULL, 0);
+        break;
+      case CFG_PARAM_VERIFY_REQUIRE:
+        config_param_validate(CFG_VERIFY_REQUIRE, CFG_BOOL_ON, cfg, NULL, 0);
+        break;
+      case CFG_PARAM_VERIFY_PROXY:
+        config_param_validate(CFG_VERIFY_PROXY, CFG_BOOL_ON, cfg, NULL, 0);
         break;
       case 't':
         test_only = 1;
