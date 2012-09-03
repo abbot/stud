@@ -1478,7 +1478,8 @@ static void ssl_read(struct ev_loop *loop, ev_io *w, int revents) {
             buf = ringbuffer_write_ptr(&ps->ring_ssl2clear);
             extra_len = write_ssl_chain_header(ps->ssl, buf, RING_DATA_LEN);
             extra_len += write_forwarded_for_header(ps, buf+extra_len, RING_DATA_LEN - extra_len);
-            extra_len += write_hmac_header(buf, extra_len, buf+extra_len, RING_DATA_LEN - extra_len);
+            if(CONFIG->HMAC_KEY)
+                extra_len += write_hmac_header(buf, extra_len, buf+extra_len, RING_DATA_LEN - extra_len);
             if(extra_len != 0)
                 ringbuffer_write_append(&ps->ring_ssl2clear, extra_len);
 
