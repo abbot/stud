@@ -74,6 +74,7 @@ struct __stud_config {
     int VERIFY_REQUIRE;
     int VERIFY_PROXY;
     int INJECT_CHAIN;
+    char *HMAC_KEY;
 };
 
 typedef struct __stud_config stud_config;

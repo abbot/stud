@@ -57,6 +57,8 @@
 #define CFG_PARAM_VERIFY_PROXY 20003
 #define CFG_INJECT_CHAIN "inject-chain"
 #define CFG_PARAM_INJECT_CHAIN 20004
+#define CFG_HMAC_KEY "hmac-key"
+#define CFG_PARAM_HMAC_KEY 20005
 
 #ifdef USE_SHARED_CACHE
   #define CFG_SHARED_CACHE "shared-cache"
@@ -162,6 +164,7 @@ stud_config * config_new (void) {
   r->VERIFY_REQUIRE     = 0;
   r->VERIFY_PROXY       = 0;
   r->INJECT_CHAIN       = 0;
+  r->HMAC_KEY           = NULL;
 
   return r;
 }
@@ -548,6 +551,38 @@ int config_param_shcupd_peer (char *str, stud_config *cfg) {
 
 #endif /* USE_SHARED_CACHE */
 
+/*
+ * Return a value of hex digit in ch, or -1 if not a hex digit.
+ */
+static int hexval(char digit)
+{
+  char ch = tolower(digit);
+  if (ch >= '0' && ch <= '9')
+    return ch - '0';
+  if (ch >= 'a' && ch <= 'f')
+    return ch - 'a' + 10;
+  return -1;
+}
+
+/*
+ * Decode a hex-encoded string. Return decoded string length on success, 0 on failure.
+ */
+static int decode_hex(const char* src, int src_len, char *dst, int dst_len)
+{
+  int i, j, v1, v2;
+  if (src_len % 2 != 0) return 0;
+  for (i=0, j=0; i<src_len && j < dst_len; i+= 2, j++) {
+    v1 = hexval(src[i]);
+    if (v1 < 0) return 0;
+    v2 = hexval(src[i+1]);
+    if (v2 < 0) return 0;
+    dst[j] = (v1 << 4) + v2;
+  }
+  /* If loop terminated earlier then we ran out of space in dst buffer */
+  if (i < src_len) return 0;
+  return j;
+}
+
 void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int line) {
   int r = 1;
   struct stat st;
@@ -746,6 +781,23 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
   else if (strcmp(k, CFG_INJECT_CHAIN) == 0) {
     r = config_param_val_bool(v, &cfg->INJECT_CHAIN);
   }
+  else if (strcmp(k, CFG_HMAC_KEY) == 0) {
+    if (v != NULL) {
+      char buf[32];
+      if (strlen(v) != 64) {
+        config_error_set("HMAC Key should be exactly 64 hex digits long", v);
+        r = 0;
+      } else if (decode_hex(v, 64, buf, 32) != 32) {
+        config_error_set("HMAC Key should be exactly 64 hex digits long", v);
+        r = 0;
+      } else {
+        /* can't use config_assign_str because key may contain '\0' */
+        cfg->HMAC_KEY = (char*)malloc(32);
+        memmove(cfg->HMAC_KEY, buf, 32);
+        r = 1;
+      }
+    }
+  }
   else {
     fprintf(
       stderr,
@@ -807,6 +859,19 @@ int config_file_parse (char *file, stud_config *cfg) {
   return 1;
 }
 #endif /* NO_CONFIG_FILE */
+
+char * config_disp_hmac_key (const char *_hmac_key) {
+  static char result[32*2+1];
+  const unsigned char *hmac_key = (const unsigned char*)_hmac_key;
+  int i;
+  bzero(result, sizeof(result));
+  if (hmac_key != NULL) {
+    for(i=0; i<32; i++) {
+      snprintf(result + i*2, 3, "%02x", (int)hmac_key[i]);
+    }
+  }
+  return result;
+}
 
 char * config_disp_str (char *str) {
   return (str == NULL) ? "" : str;
@@ -972,6 +1037,7 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "      --verify-require       Fail if peer does not present a valid certificate\n");
   fprintf(out, "      --verify-proxy         Allow proxy certificates in certificate chain\n");
   fprintf(out, "      --inject-chain         Inject extra HTTP header with peer certificate chain\n");
+  fprintf(out, "      --hmac-key             HMAC key to sign injected headers, 64 hex digits.\n");
   fprintf(out, "\n");
   fprintf(out, "  -t  --test                 Test configuration and exit\n");
   fprintf(out, "  -V  --version              Print program version and exit\n");
@@ -1064,6 +1130,13 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, "#\n");
   fprintf(fd, "# type: boolean\n");
   fprintf(fd, FMT_STR, CFG_INJECT_CHAIN, config_disp_bool(cfg->INJECT_CHAIN));
+  fprintf(fd, "\n");
+
+  fprintf(fd, "# HMAC key for signing injected headers, 64 hex digits.\n");
+  fprintf(fd, "# All injected headers will be signed using HMAC-SHA256.\n");
+  fprintf(fd, "#\n");
+  fprintf(fd, "# type: string\n");
+  fprintf(fd, FMT_QSTR, CFG_HMAC_KEY, config_disp_hmac_key(cfg->HMAC_KEY));
   fprintf(fd, "\n");
 
   fprintf(fd, "# Number of worker processes\n");
@@ -1246,6 +1319,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { CFG_VERIFY_REQUIRE, 0, NULL, CFG_PARAM_VERIFY_REQUIRE },
     { CFG_VERIFY_PROXY, 0, NULL, CFG_PARAM_VERIFY_PROXY },
     { CFG_INJECT_CHAIN, 0, NULL, CFG_PARAM_INJECT_CHAIN },
+    { CFG_HMAC_KEY, 1, NULL, CFG_PARAM_HMAC_KEY },
 
     { "test", 0, NULL, 't' },
     { "version", 0, NULL, 'V' },
@@ -1347,6 +1421,9 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
         break;
       case CFG_PARAM_INJECT_CHAIN:
         config_param_validate(CFG_INJECT_CHAIN, CFG_BOOL_ON, cfg, NULL, 0);
+        break;
+      case CFG_PARAM_HMAC_KEY:
+        config_param_validate(CFG_HMAC_KEY, optarg, cfg, NULL, 0);
         break;
       case 't':
         test_only = 1;
