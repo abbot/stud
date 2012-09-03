@@ -1265,11 +1265,115 @@ static void handle_fatal_ssl_error(proxystate *ps, int err, int backend) {
 }
 
 /*
+ * Base64 encoder
+ * Shame on me: code from wikipedia.
+ * Can't use OpenSSL's encoder because it injects newlines.
+ */
+static int base64encode(const void* data_buf, size_t dataLength, char* result, size_t resultSize)
+{
+   const char base64chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+   const uint8_t *data = (const uint8_t *)data_buf;
+   size_t resultIndex = 0;
+   size_t x;
+   uint32_t n = 0;
+   int padCount = dataLength % 3;
+   uint8_t n0, n1, n2, n3;
+ 
+   /* increment over the length of the string, three characters at a time */
+   for (x = 0; x < dataLength; x += 3) 
+   {
+      /* these three 8-bit (ASCII) characters become one 24-bit number */
+      n = data[x] << 16;
+ 
+      if((x+1) < dataLength)
+         n += data[x+1] << 8;
+ 
+      if((x+2) < dataLength)
+         n += data[x+2];
+ 
+      /* this 24-bit number gets separated into four 6-bit numbers */
+      n0 = (uint8_t)(n >> 18) & 63;
+      n1 = (uint8_t)(n >> 12) & 63;
+      n2 = (uint8_t)(n >> 6) & 63;
+      n3 = (uint8_t)n & 63;
+ 
+      /*
+       * if we have one byte available, then its encoding is spread
+       * out over two characters
+       */
+      if(resultIndex >= resultSize) return 0;   /* indicate failure: buffer too small */
+      result[resultIndex++] = base64chars[n0];
+      if(resultIndex >= resultSize) return 0;   /* indicate failure: buffer too small */
+      result[resultIndex++] = base64chars[n1];
+ 
+      /*
+       * if we have only two bytes available, then their encoding is
+       * spread out over three chars
+       */
+      if((x+1) < dataLength)
+      {
+         if(resultIndex >= resultSize) return 0;   /* indicate failure: buffer too small */
+         result[resultIndex++] = base64chars[n2];
+      }
+ 
+      /*
+       * if we have all three bytes available, then their encoding is spread
+       * out over four characters
+       */
+      if((x+2) < dataLength)
+      {
+         if(resultIndex >= resultSize) return 0;   /* indicate failure: buffer too small */
+         result[resultIndex++] = base64chars[n3];
+      }
+   }  
+ 
+   /*
+    * create and add padding that is required if we did not have a multiple of 3
+    * number of characters available
+    */
+   if (padCount > 0) 
+   { 
+      for (; padCount < 3; padCount++) 
+      { 
+         if(resultIndex >= resultSize) return 0;   /* indicate failure: buffer too small */
+         result[resultIndex++] = '=';
+      } 
+   }
+   if(resultIndex >= resultSize) return 0;   /* indicate failure: buffer too small */
+   result[resultIndex] = 0;
+   return resultIndex;
+}
+
+/*
  * Write SSL certificate chain header into buffer
  */
-static int write_ssl_chain_header(SSL *ssl, char *buf, size_t buffer_size) {
-    assert(ssl);
-    return snprintf(buf, buffer_size, "Custom: header\r\n");
+static int write_ssl_chain_header(SSL *ssl, char *buf, int buffer_size) {
+    STACK_OF(X509) *chain;
+    unsigned char *asn_data;
+    int asn_data_len;
+    int len, used;
+
+    chain = sk_X509_dup(SSL_get_peer_cert_chain(ssl));
+    if (chain == NULL) {
+        return 0;
+    }
+
+    sk_X509_insert(chain, SSL_get_peer_certificate(ssl), 0);
+
+    asn_data = ASN1_seq_pack_X509(chain, i2d_X509, NULL, &asn_data_len);
+    used = 0;
+    len = snprintf(buf, buffer_size, "SSL-Peer-Chain: ");
+    used += len;
+    len = base64encode((char*)asn_data, asn_data_len, buf + used, buffer_size - used);
+    if(len == 0) {
+        len = snprintf(buf+used, buffer_size-used, "too long");
+    }
+    used += len;
+    len = snprintf(buf + used, buffer_size - used, "\r\n");
+    used += len;
+    OPENSSL_free(asn_data);
+
+    return used;
 }
 
 /* Read some data from the upstream secure socket via OpenSSL,
