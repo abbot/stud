@@ -55,6 +55,8 @@
 #define CFG_PARAM_VERIFY_REQUIRE 20002
 #define CFG_VERIFY_PROXY "verify-proxy"
 #define CFG_PARAM_VERIFY_PROXY 20003
+#define CFG_INJECT_CHAIN "inject-chain"
+#define CFG_PARAM_INJECT_CHAIN 20004
 
 #ifdef USE_SHARED_CACHE
   #define CFG_SHARED_CACHE "shared-cache"
@@ -159,6 +161,7 @@ stud_config * config_new (void) {
   r->VERIFY_DEPTH       = 0;
   r->VERIFY_REQUIRE     = 0;
   r->VERIFY_PROXY       = 0;
+  r->INJECT_CHAIN       = 0;
 
   return r;
 }
@@ -740,6 +743,9 @@ void config_param_validate (char *k, char *v, stud_config *cfg, char *file, int 
   else if (strcmp(k, CFG_VERIFY_PROXY) == 0) {
     r = config_param_val_bool(v, &cfg->VERIFY_PROXY);
   }
+  else if (strcmp(k, CFG_INJECT_CHAIN) == 0) {
+    r = config_param_val_bool(v, &cfg->INJECT_CHAIN);
+  }
   else {
     fprintf(
       stderr,
@@ -965,6 +971,7 @@ void config_print_usage_fd (char *prog, stud_config *cfg, FILE *out) {
   fprintf(out, "      --verify-depth         Peer certificate verification depth, 0 to disable (Default: %d)\n", cfg->VERIFY_DEPTH);
   fprintf(out, "      --verify-require       Fail if peer does not present a valid certificate\n");
   fprintf(out, "      --verify-proxy         Allow proxy certificates in certificate chain\n");
+  fprintf(out, "      --inject-chain         Inject extra HTTP header with peer certificate chain\n");
   fprintf(out, "\n");
   fprintf(out, "  -t  --test                 Test configuration and exit\n");
   fprintf(out, "  -V  --version              Print program version and exit\n");
@@ -1051,6 +1058,12 @@ void config_print_default (FILE *fd, stud_config *cfg) {
   fprintf(fd, "#\n");
   fprintf(fd, "# type: boolean\n");
   fprintf(fd, FMT_STR, CFG_VERIFY_PROXY, config_disp_bool(cfg->VERIFY_PROXY));
+  fprintf(fd, "\n");
+
+  fprintf(fd, "# Inject header with peer certificate chain\n");
+  fprintf(fd, "#\n");
+  fprintf(fd, "# type: boolean\n");
+  fprintf(fd, FMT_STR, CFG_INJECT_CHAIN, config_disp_bool(cfg->INJECT_CHAIN));
   fprintf(fd, "\n");
 
   fprintf(fd, "# Number of worker processes\n");
@@ -1232,6 +1245,7 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
     { CFG_VERIFY_DEPTH, 1, NULL, CFG_PARAM_VERIFY_DEPTH },
     { CFG_VERIFY_REQUIRE, 0, NULL, CFG_PARAM_VERIFY_REQUIRE },
     { CFG_VERIFY_PROXY, 0, NULL, CFG_PARAM_VERIFY_PROXY },
+    { CFG_INJECT_CHAIN, 0, NULL, CFG_PARAM_INJECT_CHAIN },
 
     { "test", 0, NULL, 't' },
     { "version", 0, NULL, 'V' },
@@ -1330,6 +1344,9 @@ void config_parse_cli(int argc, char **argv, stud_config *cfg) {
         break;
       case CFG_PARAM_VERIFY_PROXY:
         config_param_validate(CFG_VERIFY_PROXY, CFG_BOOL_ON, cfg, NULL, 0);
+        break;
+      case CFG_PARAM_INJECT_CHAIN:
+        config_param_validate(CFG_INJECT_CHAIN, CFG_BOOL_ON, cfg, NULL, 0);
         break;
       case 't':
         test_only = 1;

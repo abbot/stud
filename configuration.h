@@ -73,6 +73,7 @@ struct __stud_config {
     int VERIFY_DEPTH;
     int VERIFY_REQUIRE;
     int VERIFY_PROXY;
+    int INJECT_CHAIN;
 };
 
 typedef struct __stud_config stud_config;
