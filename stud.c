@@ -1442,6 +1442,7 @@ static void ssl_read(struct ev_loop *loop, ev_io *w, int revents) {
                 ev_io_stop(loop, &ps->ev_r_ssl);
             if (ps->clear_connected)
                 safe_enable_io(ps, &ps->ev_w_clear);
+            free(ps->http_method_buffer);
         }
     }
     else {
