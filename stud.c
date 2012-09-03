@@ -939,6 +939,9 @@ static void shutdown_proxy(proxystate *ps, SHUTDOWN_REQUESTOR req) {
         SSL_set_shutdown(ps->ssl, SSL_SENT_SHUTDOWN);
         SSL_free(ps->ssl);
 
+        if(ps->http_method_buffer)
+            free(ps->http_method_buffer);
+
         free(ps);
     }
     else {
@@ -1443,6 +1446,7 @@ static void ssl_read(struct ev_loop *loop, ev_io *w, int revents) {
             if (ps->clear_connected)
                 safe_enable_io(ps, &ps->ev_w_clear);
             free(ps->http_method_buffer);
+            ps->http_method_buffer = NULL;
         }
     }
     else {
