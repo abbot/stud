@@ -167,10 +167,14 @@ typedef struct proxystate {
     int handshaked:1;                   /* Initial handshake happened */
     int clear_connected:1;              /* Clear stream is connected  */
     int renegotiation:1;                /* Renegotation is occuring */
+    int end_of_method:1;                /* Recieved the end of HTTP method line */
 
     SSL *ssl;                           /* OpenSSL SSL state */
 
     struct sockaddr_storage remote_ip;  /* Remote ip returned from `accept` */
+    char *http_method_buffer;           /* Buffer for HTTP Method line */
+    int http_method_buffer_size;        /* HTTP Method buffer size */
+    int http_method_buffer_len;         /* Current length of data in HTTP Method line buffer */
 } proxystate;
 
 #define LOG(...)                                            \
@@ -1260,12 +1264,23 @@ static void handle_fatal_ssl_error(proxystate *ps, int err, int backend) {
     shutdown_proxy(ps, SHUTDOWN_SSL);
 }
 
+/*
+ * Write SSL certificate chain header into buffer
+ */
+static int write_ssl_chain_header(SSL *ssl, char *buf, size_t buffer_size) {
+    assert(ssl);
+    return snprintf(buf, buffer_size, "Custom: header\r\n");
+}
+
 /* Read some data from the upstream secure socket via OpenSSL,
  * and buffer anything we get for writing to the backend */
 static void ssl_read(struct ev_loop *loop, ev_io *w, int revents) {
     (void) revents;
     int t;
     proxystate *ps = (proxystate *)w->data;
+    char *cr;
+    int extra_len;
+    int method_len;
     if (ps->want_shutdown) {
         ev_io_stop(loop, &ps->ev_r_ssl);
         return;
@@ -1280,11 +1295,50 @@ static void ssl_read(struct ev_loop *loop, ev_io *w, int revents) {
     }
 
     if (t > 0) {
-        ringbuffer_write_append(&ps->ring_ssl2clear, t);
-        if (ringbuffer_is_full(&ps->ring_ssl2clear))
-            ev_io_stop(loop, &ps->ev_r_ssl);
-        if (ps->clear_connected)
-            safe_enable_io(ps, &ps->ev_w_clear);
+        /* If we already handled the HTTP Method line, behave as usual */
+        if (ps->end_of_method || !CONFIG->INJECT_CHAIN) {
+            ringbuffer_write_append(&ps->ring_ssl2clear, t);
+            if (ringbuffer_is_full(&ps->ring_ssl2clear))
+                ev_io_stop(loop, &ps->ev_r_ssl);
+            if (ps->clear_connected)
+                safe_enable_io(ps, &ps->ev_w_clear);
+        } else {
+            while (t + ps->http_method_buffer_len > ps->http_method_buffer_size) {
+                ps->http_method_buffer_size *= 2;
+                ps->http_method_buffer = (char*)realloc(ps->http_method_buffer, ps->http_method_buffer_size);
+                /* Our normal clients don't send THAT long method strings */
+                if(ps->http_method_buffer_size > RING_DATA_LEN) {
+                    shutdown_proxy(ps, SHUTDOWN_SSL);
+                    return;
+                }
+            }
+            memmove(ps->http_method_buffer + ps->http_method_buffer_len, buf, t);
+            ps->http_method_buffer_len += t;
+            cr = (char*)memchr(ps->http_method_buffer, '\r', ps->http_method_buffer_len-1);
+            if (cr == NULL) {    
+                return;
+            }
+            if (cr[1] != '\n') {
+                return;
+            }
+            method_len = cr - ps->http_method_buffer + 2;
+            memmove(buf, ps->http_method_buffer, method_len);
+            ringbuffer_write_append(&ps->ring_ssl2clear, method_len);
+
+            buf = ringbuffer_write_ptr(&ps->ring_ssl2clear);
+            extra_len = write_ssl_chain_header(ps->ssl, buf, RING_DATA_LEN);
+            if(extra_len != 0)
+                ringbuffer_write_append(&ps->ring_ssl2clear, extra_len);
+
+            buf = ringbuffer_write_ptr(&ps->ring_ssl2clear);
+            memmove(buf, ps->http_method_buffer + method_len, ps->http_method_buffer_len - method_len);
+            ringbuffer_write_append(&ps->ring_ssl2clear, ps->http_method_buffer_len - method_len);
+
+            if (ringbuffer_is_full(&ps->ring_ssl2clear))
+                ev_io_stop(loop, &ps->ev_r_ssl);
+            if (ps->clear_connected)
+                safe_enable_io(ps, &ps->ev_w_clear);
+        }
     }
     else {
         int err = SSL_get_error(ps->ssl, t);
@@ -1404,9 +1458,14 @@ static void handle_accept(struct ev_loop *loop, ev_io *w, int revents) {
     ps->clear_connected = 0;
     ps->handshaked = 0;
     ps->renegotiation = 0;
+    ps->end_of_method = 0;
     ps->remote_ip = addr;
     ringbuffer_init(&ps->ring_clear2ssl);
     ringbuffer_init(&ps->ring_ssl2clear);
+    ps->http_method_buffer_size = 1024;
+    ps->http_method_buffer = (char *)malloc(ps->http_method_buffer_size);
+    assert(ps->http_method_buffer != NULL);
+    ps->http_method_buffer_len = 0;
 
     /* set up events */
     ev_io_init(&ps->ev_r_ssl, ssl_read, client, EV_READ);
