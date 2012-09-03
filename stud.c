@@ -1414,7 +1414,7 @@ static int write_hmac_header(char *buf, int buf_size, char *dst, int dst_size)
     bzero(b64_buf, sizeof(b64_buf));
     HMAC(EVP_sha256(), CONFIG->HMAC_KEY, 32, (unsigned char*)buf, buf_size, (unsigned char*)hmac_buf, &hmac_buf_size);
     base64encode(hmac_buf, 32, b64_buf, 65);
-    rc = snprintf(dst, dst_size, "Injected-Signature: %s\r\n", b64_buf);
+    rc = snprintf(dst, dst_size, "STUD-Signature: %s\r\n", b64_buf);
     if(rc+1 > dst_size) {
         return 0;
     } else {
