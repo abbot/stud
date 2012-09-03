@@ -1379,6 +1379,49 @@ static int write_ssl_chain_header(SSL *ssl, char *buf, int buffer_size) {
     return used;
 }
 
+/*
+ * Write X-Forwarded-For header
+ */
+static int write_forwarded_for_header(const proxystate *ps, char *dst, int dst_size)
+{
+    int written = 0;
+    char tcp6_address_string[INET6_ADDRSTRLEN];
+    if(ps->remote_ip.ss_family == AF_INET) {
+       struct sockaddr_in* addr = (struct sockaddr_in*)&ps->remote_ip;
+       written = snprintf(dst, dst_size, "X-Forwarded-For: %s\r\n", inet_ntoa(addr->sin_addr));
+    }
+    else if (ps->remote_ip.ss_family == AF_INET6) {
+        struct sockaddr_in6* addr = (struct sockaddr_in6*)&ps->remote_ip;
+        inet_ntop(AF_INET6,&(addr->sin6_addr),tcp6_address_string,INET6_ADDRSTRLEN);
+        written = snprintf(dst, dst_size, "X-Forwarded-For: %s\r\n", tcp6_address_string);
+    }
+    if(written + 1 > dst_size) {
+        return 0;
+    } else {
+        return written;
+    }
+}
+
+/*
+ * Write HMAC signature for data in buf
+ */
+static int write_hmac_header(char *buf, int buf_size, char *dst, int dst_size)
+{
+    int rc;
+    unsigned int hmac_buf_size=32;
+    char hmac_buf[32];
+    char b64_buf[65];
+    bzero(b64_buf, sizeof(b64_buf));
+    HMAC(EVP_sha256(), CONFIG->HMAC_KEY, 32, (unsigned char*)buf, buf_size, (unsigned char*)hmac_buf, &hmac_buf_size);
+    base64encode(hmac_buf, 32, b64_buf, 65);
+    rc = snprintf(dst, dst_size, "Injected-Signature: %s\r\n", b64_buf);
+    if(rc+1 > dst_size) {
+        return 0;
+    } else {
+        return rc;
+    }
+}
+
 /* Read some data from the upstream secure socket via OpenSSL,
  * and buffer anything we get for writing to the backend */
 static void ssl_read(struct ev_loop *loop, ev_io *w, int revents) {
@@ -1434,6 +1477,8 @@ static void ssl_read(struct ev_loop *loop, ev_io *w, int revents) {
 
             buf = ringbuffer_write_ptr(&ps->ring_ssl2clear);
             extra_len = write_ssl_chain_header(ps->ssl, buf, RING_DATA_LEN);
+            extra_len += write_forwarded_for_header(ps, buf+extra_len, RING_DATA_LEN - extra_len);
+            extra_len += write_hmac_header(buf, extra_len, buf+extra_len, RING_DATA_LEN - extra_len);
             if(extra_len != 0)
                 ringbuffer_write_append(&ps->ring_ssl2clear, extra_len);
 
