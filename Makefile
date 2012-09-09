@@ -7,8 +7,13 @@ PREFIX  = /usr/local
 BINDIR  = $(PREFIX)/bin
 MANDIR  = $(PREFIX)/share/man
 
-CFLAGS  = -O2 -g -std=c99 -fno-strict-aliasing -Wall -W -D_GNU_SOURCE -I/usr/include/libev
-LDFLAGS = -lssl -lcrypto -lev -L/usr/local/lib
+OPENSSL_INC := 
+OPENSSL_LD := -lssl -lcrypto
+LIBEV_INC := -I/usr/include/libev
+LIBEV_LD := -lev
+
+CFLAGS  = -O2 -g -std=c99 -fno-strict-aliasing -Wall -W -D_GNU_SOURCE $(OPENSSL_INC) $(LIBEV_INC)
+LDFLAGS = $(OPENSSL_LD) $(LIBEV_LD)
 OBJS    = stud.o ringbuffer.o configuration.o
 
 all: realall
