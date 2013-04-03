@@ -1248,6 +1248,7 @@ static void client_handshake(struct ev_loop *loop, ev_io *w, int revents) {
         }
         else {
             LOG("{%s} Unexpected SSL error (in handshake): %d\n", w->fd == ps->fd_up ? "client" : "backend", err);
+            ERR_print_errors_fp(stderr);
             shutdown_proxy(ps, SHUTDOWN_SSL);
         }
     }
