@@ -113,6 +113,7 @@ int create_workers;
 stud_config *CONFIG;
 
 static char tcp_proxy_line[128] = "";
+static unsigned char *session_id_context[SSL_MAX_SSL_SESSION_ID_LENGTH];
 
 /* What agent/state requests the shutdown--for proper half-closed
  * handling */
@@ -666,6 +667,12 @@ SSL_CTX *make_ctx(const char *pemfile) {
             SSL_CTX_set_verify(ctx, ssloptions, NULL);
         }
         SSL_CTX_set_verify_depth(ctx, CONFIG->VERIFY_DEPTH);
+        SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
+        SSL_CTX_sess_set_cache_size(ctx, 5);
+        SSL_CTX_set_purpose(ctx, X509_PURPOSE_ANY);
+
+        RAND_bytes((unsigned char *)session_id_context, SSL_MAX_SSL_SESSION_ID_LENGTH);
+        SSL_CTX_set_session_id_context(ctx, (const unsigned char*)session_id_context, SSL_MAX_SSL_SESSION_ID_LENGTH);
     }
 
     if (CONFIG->PMODE == SSL_CLIENT) {
@@ -1357,9 +1364,11 @@ static int write_ssl_chain_header(SSL *ssl, char *buf, int buffer_size) {
     int asn_data_len;
     int len, used;
 
-    chain = sk_X509_dup(SSL_get_peer_cert_chain(ssl));
-    if (chain == NULL) {
-        return 0;
+    chain = SSL_get_peer_cert_chain(ssl);
+    if(chain != NULL) {
+        chain = sk_X509_dup(chain);
+    } else {
+        chain = sk_X509_new_null();
     }
 
     sk_X509_insert(chain, SSL_get_peer_certificate(ssl), 0);
